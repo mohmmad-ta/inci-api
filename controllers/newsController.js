@@ -1,100 +1,43 @@
-const jwt = require('jsonwebtoken')
-const User = require('./../models/userModel');
-const catchAsync = require('./../utils/catchAsync');
+const News = require('../models/newsModel');
+const factory = require('./handlerFactory');
+const multer = require("multer");
 const AppError = require("../utils/appError");
-const {promisify} = require("util");
+const catchAsync = require('./../utils/catchAsync');
+const sharp = require("sharp");
 
-// *** jwt token ***
-const signToken = (id)=>{
-    return jwt.sign({id}, process.env.JWT_SECRET, {
-        expiresIn: process.env.JWT_EXPIRES_IN
-    })
-}
-// *** jwt token ***
-const createSendToken = (user, statusCode, res) => {
-    const token = signToken(user._id);
-    const cookieOptions = {
-        expires: new Date(
-            Date.now() + process.env.JWT_COOKIE_EXPIRES_IN * 24 * 60 * 60 * 1000
-        ),
-        httpOnly: true
-    };
-    if (process.env.NODE_ENV === 'production') cookieOptions.secure = true;
-
-    res.cookie('jwt', token, cookieOptions);
-    user.password = undefined;
-
-    res.status(statusCode).json({
-        status: 'success',
-        token: token,
-        data: {
-            user
-        }
-    });
+const multerStorage = multer.memoryStorage();
+const multerFilter = (req, file, cb) => {
+    if (file.mimetype.startsWith('image')) {
+        cb(null, true);
+    } else {
+        cb(new AppError('Not an image! Please upload only images.', 400), false);
+    }
 };
-// *** To create new user ***
-exports.signup = catchAsync(async (req, res, next)=>{
-    const user = await User.create({
-        email: 'inciadmin@diyala.com',
-        password: 'inciadmin202.@',
-    });
-    createSendToken(user, 201, res);
-})
-// *** To user login ***
-exports.login = catchAsync(async (req, res, next) => {
-    const { email, password } = req.body;
-    if (!email || !password) {
-        return next(new AppError('Please provide email and password!', 400));
-    }
-    const user = await User.findOne({ email }).select('+password');
-
-    if (!user || !(await user.correctPassword(password, user.password))) {
-        return next(new AppError('Incorrect email or password', 401));
-    }
-
-    createSendToken(user, 200, res);
+const upload = multer({
+    storage: multerStorage,
+    fileFilter: multerFilter
 });
-// *** To Protecting Routes ***
-exports.protect = catchAsync(async (req, res, next) => {
-    let token ;
-    if (req.headers.authorization && req.headers.authorization.startsWith('Bearer')) {
-        token = req.headers.authorization.split(' ')[1];
-    } else if (req.cookies.jwt) {
-        token = req.cookies.jwt;
-    }
+exports.uploadProductPhoto = upload.fields([
+    {name: 'image', maxCount: 1},
+])
+exports.resizeTourImages = catchAsync(async (req, res, next) => {
+    if (!req.files.image ) return next();
+    // 1) Cover image
+    req.body.image = `${req.protocol}://${req.get('host')}/public/images/news/${Date.now()}-${req.files.image.fieldname}.jpeg`;
+    const nameImage = `${Date.now()}-${req.params.id}.jpeg`;
+    console.log(req.body.image)
+    await sharp(req.files.image[0].buffer)
+        .toFormat('jpeg')
+        .jpeg({ quality: 100 })
+        .toFile(`public/images/news/${nameImage}`);
 
-    if (!token) {
-        return next(new AppError('You are not logged in! Please log in to get access.', 401));
-    }
-
-    const decoded = await promisify(jwt.verify)(token, process.env.JWT_SECRET);
-
-    const currentUser = await User.findById(decoded.id);
-    if (!currentUser) {
-        return next(new AppError('The user belonging to this token does no longer exist.', 401));
-    }
-    if (currentUser.changedPasswordAfter(decoded.iat)) {
-        return next(new AppError('User recently changed password! Please log in again.', 401));
-    }
-    req.user = currentUser;
-    res.locals.user = currentUser;
     next();
 });
-// *** To user logout ***
-exports.logout = catchAsync(async (req, res, next)=>{
-    res.cookie('jwt', null);
-    res.cookie('id', null);
-    res.status(201).json({
-        status: 'success',
-    })
-})
-// ***  User authorization ***
-exports.restrictTo = (...roles)=>{
-    return (req, res, next)=>{
-        if (!roles.includes(req.user.role)){
-            return next(new AppError('You do not have permission to perform this action', 403));
-        }
-        next()
-    }
-}
+
+
+exports.getAllNews = factory.getAll(News);
+exports.getOneNews = factory.getOne(News);
+exports.createNews = factory.createOne(News);
+exports.updateNews = factory.updateOne(News);
+exports.deleteNews = factory.deleteOne(News);
 
