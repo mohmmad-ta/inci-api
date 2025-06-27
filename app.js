@@ -48,7 +48,7 @@ app.use(
 
 // Enable CORS for all routes
 app.use(cors({
-    origin: 'https://your-vue-app.com',  // or '*' for all
+    origin: '*',  // or '*' for all
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'patch'],
     allowedHeaders: ['Content-Type', 'Authorization'],
     credentials: true // only if using cookies/auth
